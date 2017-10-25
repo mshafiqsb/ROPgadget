@@ -8,10 +8,10 @@
 
 import re
 import codecs
-from capstone   import CS_MODE_32
+from capstone   import *
 from struct     import pack
 
-class Options:
+class Options(object):
     def __init__(self, options, binary, gadgets):
         self.__options = options
         self.__gadgets = gadgets
@@ -22,6 +22,7 @@ class Options:
         if options.range:    self.__rangeOption()
         if options.re:       self.__reOption()
         if options.badbytes: self.__deleteBadBytes()
+        if options.callPreceded: self.__removeNonCallPreceded()
 
     def __filterOption(self):
         new = []
@@ -106,14 +107,47 @@ class Options:
             if flag:
                 new += [gadget]
         self.__gadgets = new
+    
+    def __removeNonCallPreceded(self):
+        def __isGadgetCallPreceded(gadget):
+            # Given a gadget, determine if the bytes immediately preceding are a call instruction
+            prevBytes = gadget["prev"]
+            # TODO: Improve / Semantically document each of these cases.
+            callPrecededExpressions = [
+                "\xe8[\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff]$",
+                "\xe8[\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff]$",
+                "\xff[\x00-\xff]$", 
+                "\xff[\x00-\xff][\x00-\xff]$", 
+                "\xff[\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff]$"
+                "\xff[\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff][\x00-\xff]$"
+            ]
+            return bool(reduce(lambda x,y: x or y, map(lambda x: re.search(x, prevBytes), callPrecededExpressions)))
+        arch = self.__binary.getArch()
+        if arch == CS_ARCH_X86:
+            initial_length = len(self.__gadgets)
+            self.__gadgets = filter(__isGadgetCallPreceded, self.__gadgets)
+            print("Options().removeNonCallPreceded(): Filtered out {} gadgets.".format(initial_length - len(self.__gadgets)))
+        else:
+            print("Options().removeNonCallPreceded(): Unsupported architecture.")
 
     def __deleteBadBytes(self):
+        archMode = self.__binary.getArchMode()
         if not self.__options.badbytes:
             return
         new = []
         #Filter out empty badbytes (i.e if badbytes was set to 00|ff| there's an empty badbyte after the last '|')
         #and convert each one to the corresponding byte
-        bbytes = [codecs.decode(bb.encode("ascii"), "hex") for bb in self.__options.badbytes.split("|") if bb]
+        bbytes = []
+        for bb in self.__options.badbytes.split("|"):
+            if '-' in bb:
+                rng = bb.split('-')
+                low = ord(rng[0].decode('hex'))
+                high = ord(rng[1].decode('hex'))
+                for i in range(low, high):
+                    bbytes.append(chr(i))
+            else:
+                bbytes.append(codecs.decode(bb.encode("ascii"), "hex"))
+
         archMode = self.__binary.getArchMode()
         for gadget in self.__gadgets:
             gadAddr = pack("<L", gadget["vaddr"]) if archMode == CS_MODE_32 else pack("<Q", gadget["vaddr"])

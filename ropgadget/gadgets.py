@@ -10,7 +10,7 @@ import re
 from   capstone import *
 
 
-class Gadgets:
+class Gadgets(object):
     def __init__(self, binary, options, offset):
         self.__binary  = binary
         self.__options = options
@@ -55,7 +55,7 @@ class Gadgets:
         C_OP    = 0
         C_SIZE  = 1
         C_ALIGN = 2
-
+        PREV_BYTES = 9 # Number of bytes prior to the gadget to store.
         ret = []
         md = Cs(arch, mode)
         for gad in gadgets:
@@ -72,7 +72,10 @@ class Gadgets:
                         if len(gadget) > 0:
                             gadget = gadget[:-3]
                             off = self.__offset
-                            ret += [{"vaddr" :  off+section["vaddr"]+ref-(i*gad[C_ALIGN]), "gadget" : gadget, "decodes" : decodes, "bytes": section["opcodes"][ref-(i*gad[C_ALIGN]):ref+gad[C_SIZE]]}]
+                            vaddr = off+section["vaddr"]+ref-(i*gad[C_ALIGN])
+                            prevBytesAddr = max(section["vaddr"], vaddr - PREV_BYTES)
+                            prevBytes = section["opcodes"][prevBytesAddr-section["vaddr"]:vaddr-section["vaddr"]]
+                            ret += [{"vaddr" :  vaddr, "gadget" : gadget, "decodes" : decodes, "bytes": section["opcodes"][ref-(i*gad[C_ALIGN]):ref+gad[C_SIZE]], "prev": prevBytes}]
         return ret
 
     def addROPGadgets(self, section):
@@ -82,10 +85,13 @@ class Gadgets:
 
         if arch == CS_ARCH_X86:
             gadgets = [
-                            [b"\xc3", 1, 1],               # ret
-                            [b"\xc2[\x00-\xff]{2}", 3, 1], # ret <imm>
-                            [b"\xcb", 1, 1],               # retf
-                            [b"\xca[\x00-\xff]{2}", 3, 1]  # retf <imm>
+                            [b"\xc3", 1, 1],                # ret
+                            [b"\xc2[\x00-\xff]{2}", 3, 1],  # ret <imm>
+                            [b"\xcb", 1, 1],                # retf
+                            [b"\xca[\x00-\xff]{2}", 3, 1],  # retf <imm>
+                            # MPX
+                            [b"\xf2\xc3", 2, 1],               # ret
+                            [b"\xf2\xc2[\x00-\xff]{2}", 4, 1], # ret <imm>
                        ]
 
         elif arch == CS_ARCH_MIPS:   gadgets = []            # MIPS doesn't contains RET instruction set. Only JOP gadgets
@@ -130,7 +136,12 @@ class Gadgets:
                                [b"\xff[\x20\x21\x22\x23\x26\x27]{1}", 2, 1],     # jmp  [reg]
                                [b"\xff[\xe0\xe1\xe2\xe3\xe4\xe6\xe7]{1}", 2, 1], # jmp  [reg]
                                [b"\xff[\x10\x11\x12\x13\x16\x17]{1}", 2, 1],     # jmp  [reg]
-                               [b"\xff[\xd0\xd1\xd2\xd3\xd4\xd6\xd7]{1}", 2, 1]  # call [reg]
+                               [b"\xff[\xd0\xd1\xd2\xd3\xd4\xd6\xd7]{1}", 2, 1],  # call [reg]
+                               # MPX
+                               [b"\xf2\xff[\x20\x21\x22\x23\x26\x27]{1}", 3, 1],     # jmp  [reg]
+                               [b"\xf2\xff[\xe0\xe1\xe2\xe3\xe4\xe6\xe7]{1}", 3, 1], # jmp  [reg]
+                               [b"\xf2\xff[\x10\x11\x12\x13\x16\x17]{1}", 3, 1],     # jmp  [reg]
+                               [b"\xf2\xff[\xd0\xd1\xd2\xd3\xd4\xd6\xd7]{1}", 3, 1]  # call [reg]
                       ]
 
 
@@ -148,8 +159,8 @@ class Gadgets:
             arch_mode = CS_MODE_BIG_ENDIAN
         elif arch == CS_ARCH_ARM64:
             gadgets = [
-                               [b"[\x00\x20\x40\x60\x80\xa0\xc0\xe0]{1}[\x00\x02]{1}\x1f\xd6", 4, 4],     # br  reg
-                               [b"[\x00\x20\x40\x60\x80\xa0\xc0\xe0]{1}[\x00\x02]{1}\x5C\x3f\xd6", 4, 4]  # blr reg
+                               [b"[\x00\x20\x40\x60\x80\xa0\xc0\xe0]{1}[\x00-\x03]{1}[\x1f\x5f]{1}\xd6", 4, 4],  # br reg
+                               [b"[\x00\x20\x40\x60\x80\xa0\xc0\xe0]{1}[\x00-\x03]{1}\?\xd6", 4, 4]  # blr reg
                       ]
             arch_mode = CS_MODE_ARM
         elif arch == CS_ARCH_ARM:
@@ -164,7 +175,7 @@ class Gadgets:
                 gadgets = [
                                [b"[\x10-\x19\x1e]{1}\xff\x2f\xe1", 4, 4],  # bx   reg
                                [b"[\x30-\x39\x3e]{1}\xff\x2f\xe1", 4, 4],  # blx  reg
-                               [b"[\x00-\xff]{1}\x80\xbd\xe8", 4, 4]       # pop {,pc}
+                               [b"[\x00-\xff][\x80-\xff][\x10-\x1e\x30-\x3e\x50-\x5e\x70-\x7e\x90-\x9e\xb0-\xbe\xd0-\xde\xf0-\xfe][\xe8\xe9]", 4, 4] # ldm {,pc}
                           ]
                 arch_mode = CS_MODE_ARM
         else:
@@ -174,7 +185,6 @@ class Gadgets:
         if len(gadgets) > 0 :
             return self.__gadgetsFinding(section, gadgets, arch, arch_mode)
         return gadgets
-
 
     def addSYSGadgets(self, section):
 

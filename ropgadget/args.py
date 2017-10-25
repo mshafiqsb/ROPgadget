@@ -12,7 +12,7 @@ import sys
 from ropgadget.updateAlert import UpdateAlert
 from ropgadget.version     import *
 
-class Args:
+class Args(object):
     def __init__(self, arguments=None):
         self.__args = None
         custom_arguments_provided = True
@@ -62,7 +62,7 @@ architectures supported:
   ROPgadget.py --binary ./test-suite-binaries/elf-Linux-x86 --string main --range 0x080c9aaa-0x080c9aba
   ROPgadget.py --binary ./test-suite-binaries/elf-Linux-x86 --memstr "/bin/sh"
   ROPgadget.py --binary ./test-suite-binaries/elf-Linux-x86 --console
-  ROPgadget.py --binary ./test-suite-binaries/elf-Linux-x86 --badbytes "00|7f|42"
+  ROPgadget.py --binary ./test-suite-binaries/elf-Linux-x86 --badbytes "00|01-1f|7f|42"
   ROPgadget.py --binary ./test-suite-binaries/Linux_lib64.so --offset 0xdeadbeef00000000
   ROPgadget.py --binary ./test-suite-binaries/elf-ARMv7-ls --depth 5
   ROPgadget.py --binary ./test-suite-binaries/elf-ARM64-bash --depth 5
@@ -88,6 +88,7 @@ architectures supported:
         parser.add_argument("--console",            action="store_true",              help="Use an interactive console for search engine")
         parser.add_argument("--norop",              action="store_true",              help="Disable ROP search engine")
         parser.add_argument("--nojop",              action="store_true",              help="Disable JOP search engine")
+        parser.add_argument("--callPreceded",       action="store_true",              help="Only show gadgets which are call-preceded")
         parser.add_argument("--nosys",              action="store_true",              help="Disable SYS search engine")
         parser.add_argument("--multibr",            action="store_true",              help="Enable multiple branch gadgets")
         parser.add_argument("--all",                action="store_true",              help="Disables the removal of duplicate gadgets")
